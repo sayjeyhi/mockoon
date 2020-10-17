@@ -194,11 +194,17 @@ export class OpenAPIConverterService {
                 responses[routeResponse.statusCode.toString()] = {
                   description: routeResponse.label,
                   content: responseContentType
-                    ? { [responseContentType]: {} }
+                    ? { [responseContentType]: {
+                        'examples': {
+                          'main': {
+                            'value': JSON.parse(routeResponse.body),
+                          }
+                        }
+                      } }
                     : {},
                   headers: [
                     ...environment.headers,
-                    ...routeResponse.headers
+                    // ...routeResponse.headers
                   ].reduce<{
                     [header: string]: OpenAPIV3.HeaderObject;
                   }>((headers, header) => {
