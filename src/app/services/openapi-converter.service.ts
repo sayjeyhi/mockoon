@@ -182,47 +182,64 @@ export class OpenAPIConverterService {
             paths[endpoint] = {};
           }
 
-          paths[endpoint][route.method] = {
-            description: route.documentation,
-            responses: route.responses.reduce<OpenAPIV3.ResponsesObject>(
-              (responses, routeResponse) => {
-                const responseContentType = GetRouteResponseContentType(
-                  environment,
-                  routeResponse
-                );
+          paths[endpoint][route.method] = { description: route.documentation };
+          paths[endpoint][route.method].responses = route.responses.reduce<OpenAPIV3.ResponsesObject>(
+            (responses, routeResponse) => {
+              const responseContentType = GetRouteResponseContentType(
+                environment,
+                routeResponse
+              );
 
-                responses[routeResponse.statusCode.toString()] = {
-                  description: routeResponse.label,
-                  content: responseContentType
-                    ? { [responseContentType]: {
-                        'examples': {
-                          'main': {
-                            'value': JSON.parse(routeResponse.body),
-                          }
+              responses[routeResponse.statusCode.toString()] = {
+                description: routeResponse.label,
+                content: responseContentType
+                  ? { [responseContentType]: {
+                      'examples': {
+                        'main': {
+                          'value': JSON.parse(routeResponse.body),
                         }
-                      } }
-                    : {},
-                  headers: [
-                    ...environment.headers,
-                    // ...routeResponse.headers
-                  ].reduce<{
-                    [header: string]: OpenAPIV3.HeaderObject;
-                  }>((headers, header) => {
-                    if (header.key.toLowerCase() !== 'content-type') {
-                      headers[header.key] = {
-                        schema: { type: 'string' },
-                        example: header.value
-                      };
+                      }
+                    } }
+                  : {},
+                headers: [
+                  ...environment.headers,
+                  // ...routeResponse.headers
+                ].reduce<{
+                  [header: string]: OpenAPIV3.HeaderObject;
+                }>((headers, header) => {
+                  if (header.key.toLowerCase() !== 'content-type') {
+                    headers[header.key] = {
+                      schema: { type: 'string' },
+                      example: header.value
+                    };
+                  }
+
+                  return headers;
+                }, {})
+              };
+
+              return responses;
+            },
+            {}
+          );
+          paths[endpoint][route.method].responses['403'] = {
+            'description': 'JWT token error',
+            'content': {
+              'application/json': {
+                'examples': {
+                  'main': {
+                    'value': {
+                      'status': 'nok',
+                      'metadata': {
+                        'message': 'خطا در هویت سنجی!'
+                      },
+                      'data': []
                     }
-
-                    return headers;
-                  }, {})
-                };
-
-                return responses;
-              },
-              {}
-            )
+                  }
+                }
+              }
+            },
+            'headers': {},
           };
 
           if (pathParamaters && pathParamaters.length > 0) {
