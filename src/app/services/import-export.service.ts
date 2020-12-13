@@ -1,12 +1,22 @@
 import { Injectable } from '@angular/core';
+import {
+  Environment,
+  Environments,
+  Export,
+  ExportData,
+  ExportDataEnvironment,
+  ExportDataRoute,
+  Route
+} from '@mockoon/commons';
 import { clipboard, remote } from 'electron';
 import { readFile, writeFile } from 'fs';
 import { cloneDeep } from 'lodash';
-import { Logger } from 'src/app/classes/logger.js';
+import { Logger } from 'src/app/classes/logger';
 import { Config } from 'src/app/config';
 import { AnalyticsEvents } from 'src/app/enums/analytics-events.enum';
 import { Errors } from 'src/app/enums/errors.enum';
 import { Messages } from 'src/app/enums/messages.enum';
+import { OldExport } from 'src/app/models/data.model';
 import { DataService } from 'src/app/services/data.service';
 import { EventsService } from 'src/app/services/events.service';
 import { MigrationService } from 'src/app/services/migration.service';
@@ -15,15 +25,6 @@ import { SchemasBuilderService } from 'src/app/services/schemas-builder.service'
 import { ToastsService } from 'src/app/services/toasts.service';
 import { addEnvironmentAction, addRouteAction } from 'src/app/stores/actions';
 import { Store } from 'src/app/stores/store';
-import {
-  Export,
-  ExportData,
-  ExportDataEnvironment,
-  ExportDataRoute,
-  OldExport
-} from 'src/app/types/data.type';
-import { Environment, Environments } from 'src/app/types/environment.type';
-import { Route } from 'src/app/types/route.type';
 
 // Last migration done for each version
 const oldVersionsMigrationTable = {
@@ -59,7 +60,7 @@ export class ImportExportService {
       return;
     }
 
-    this.logger.info(`Exporting all environments to a file`);
+    this.logger.info('Exporting all environments to a file');
 
     const filePath = await this.openSaveDialog('Export all to JSON');
 
@@ -74,9 +75,7 @@ export class ImportExportService {
         } else {
           this.toastService.addToast('success', Messages.EXPORT_SUCCESS);
 
-          this.eventsService.analyticsEvents.next(
-            AnalyticsEvents.EXPORT_FILE
-          );
+          this.eventsService.analyticsEvents.next(AnalyticsEvents.EXPORT_FILE);
         }
       });
     }
@@ -92,7 +91,7 @@ export class ImportExportService {
       return;
     }
 
-    this.logger.info(`Exporting active environment to a file`);
+    this.logger.info('Exporting active environment to a file');
 
     const filePath = await this.openSaveDialog('Export current to JSON');
 
@@ -105,36 +104,16 @@ export class ImportExportService {
         if (error) {
           this.toastService.addToast('error', Errors.EXPORT_ERROR);
         } else {
-          this.toastService.addToast('success', Messages.EXPORT_SELECTED_SUCCESS);
+          this.toastService.addToast(
+            'success',
+            Messages.EXPORT_SELECTED_SUCCESS
+          );
 
           this.eventsService.analyticsEvents.next(
             AnalyticsEvents.EXPORT_FILE_SELECTED
           );
         }
       });
-    }
-  }
-
-  /**
-   * Writes JSON data to the specified filePath in Mockoon format.
-   *
-   * @param dataToExport
-   * @param filePath
-   * @param callback
-   */
-  private exportDataToFilePath(dataToExport, filePath, callback) {
-    try {
-      writeFile(
-        filePath,
-        this.prepareExport({ data: dataToExport, subject: 'environment' }),
-        callback
-      );
-    } catch (error) {
-      this.logger.error(
-        `Error while exporting environments: ${error.message}`
-      );
-
-      this.toastService.addToast('error', Errors.EXPORT_ERROR);
     }
   }
 
@@ -214,7 +193,7 @@ export class ImportExportService {
    * Load data from JSON file and import
    */
   public async importFromFile() {
-    this.logger.info(`Importing from file`);
+    this.logger.info('Importing from file');
 
     const dialogResult = await this.dialog.showOpenDialog(
       this.BrowserWindow.getFocusedWindow(),
@@ -249,7 +228,7 @@ export class ImportExportService {
    * Load data from clipboard and import
    */
   public importFromClipboard() {
-    this.logger.info(`Importing from clipboard`);
+    this.logger.info('Importing from clipboard');
 
     try {
       const importedData: Export & OldExport = JSON.parse(clipboard.readText());
@@ -271,7 +250,7 @@ export class ImportExportService {
    * Append imported envs to the env array.
    */
   public async importOpenAPIFile() {
-    this.logger.info(`Importing OpenAPI file`);
+    this.logger.info('Importing OpenAPI file');
 
     const dialogResult = await this.dialog.showOpenDialog(
       this.BrowserWindow.getFocusedWindow(),
@@ -301,7 +280,7 @@ export class ImportExportService {
       return;
     }
 
-    this.logger.info(`Exporting to OpenAPI file`);
+    this.logger.info('Exporting to OpenAPI file');
 
     const filePath = await this.openSaveDialog('Export all to JSON');
 
@@ -330,6 +309,27 @@ export class ImportExportService {
 
         this.toastService.addToast('error', Errors.EXPORT_ERROR);
       }
+    }
+  }
+
+  /**
+   * Writes JSON data to the specified filePath in Mockoon format.
+   *
+   * @param dataToExport
+   * @param filePath
+   * @param callback
+   */
+  private exportDataToFilePath(dataToExport, filePath, callback) {
+    try {
+      writeFile(
+        filePath,
+        this.prepareExport({ data: dataToExport, subject: 'environment' }),
+        callback
+      );
+    } catch (error) {
+      this.logger.error(`Error while exporting environments: ${error.message}`);
+
+      this.toastService.addToast('error', Errors.EXPORT_ERROR);
     }
   }
 

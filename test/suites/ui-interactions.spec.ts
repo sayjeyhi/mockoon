@@ -19,7 +19,7 @@ describe('UI interactions', () => {
       await tests.helpers.contextMenuOpen(
         '.environments-menu .nav-item .nav-link.active'
       );
-      await tests.helpers.waitElementExist(`.context-menu`);
+      await tests.helpers.waitElementExist('.context-menu');
     });
 
     it('Opened environment menu item displays full name', async () => {
@@ -43,7 +43,7 @@ describe('UI interactions', () => {
       await tests.helpers.contextMenuOpen(
         '.environments-menu .nav-item .nav-link.active'
       );
-      await tests.helpers.waitElementExist(`.context-menu`);
+      await tests.helpers.waitElementExist('.context-menu');
     });
   });
 
@@ -72,7 +72,7 @@ describe('UI interactions', () => {
     const tests = new Tests('ui');
 
     const environmentHeadersSelector =
-      'app-headers-list#environment-headers .row.headers-list';
+      'app-headers-list#environment-headers .headers-list';
 
     it('Switch to environment settings and check headers count', async () => {
       await tests.helpers.switchViewInHeader('ENV_SETTINGS');

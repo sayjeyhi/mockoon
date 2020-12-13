@@ -7,6 +7,17 @@ import {
   ViewChild
 } from '@angular/core';
 import { FormBuilder, FormGroup } from '@angular/forms';
+import {
+  CORSHeaders,
+  Environment,
+  Environments,
+  GetRouteResponseContentType,
+  Header,
+  IsValidURL,
+  MimeTypesWithTemplating,
+  Route,
+  RouteResponse
+} from '@mockoon/commons';
 import { NgbTooltipConfig } from '@ng-bootstrap/ng-bootstrap';
 import { ipcRenderer, remote, shell } from 'electron';
 import { lookup as mimeTypeLookup } from 'mime-types';
@@ -25,19 +36,18 @@ import { ChangelogModalComponent } from 'src/app/components/changelog-modal.comp
 import { SettingsModalComponent } from 'src/app/components/settings-modal.component';
 import { Config } from 'src/app/config';
 import { INDENT_SIZE } from 'src/app/constants/common.constants';
+import { methods, statusCodes } from 'src/app/constants/routes.constants';
 import { AnalyticsEvents } from 'src/app/enums/analytics-events.enum';
 import { FocusableInputs } from 'src/app/enums/ui.enum';
-import {
-  GetRouteResponseContentType,
-  IsValidURL
-} from 'src/app/libs/utils.lib';
 import { HeadersProperties } from 'src/app/models/common.model';
 import { ContextMenuItemPayload } from 'src/app/models/context-menu.model';
+import { DataSubject } from 'src/app/models/data.model';
 import {
   EnvironmentLog,
   EnvironmentLogs
 } from 'src/app/models/environment-logs.model';
 import { Toast } from 'src/app/models/toasts.model';
+import { DraggableContainerNames } from 'src/app/models/ui.model';
 import { AnalyticsService } from 'src/app/services/analytics.service';
 import { AuthService } from 'src/app/services/auth.service';
 import { EnvironmentsService } from 'src/app/services/environments.service';
@@ -47,7 +57,11 @@ import { IpcService } from 'src/app/services/ipc.service';
 import { StorageService } from 'src/app/services/storage.service';
 import { ToastsService } from 'src/app/services/toasts.service';
 import { UIService } from 'src/app/services/ui.service';
-import { clearLogsAction, updateUIStateAction } from 'src/app/stores/actions';
+import {
+  clearLogsAction,
+  updateRouteAction,
+  updateUIStateAction
+} from 'src/app/stores/actions';
 import { ReducerDirectionType } from 'src/app/stores/reducer';
 import {
   DuplicatedRoutesTypes,
@@ -57,18 +71,6 @@ import {
   TabsNameType,
   ViewsNameType
 } from 'src/app/stores/store';
-import { DataSubject } from 'src/app/types/data.type';
-import { Environment, Environments } from 'src/app/types/environment.type';
-import {
-  CORSHeaders,
-  Header,
-  methods,
-  mimeTypesWithTemplating,
-  Route,
-  RouteResponse,
-  statusCodes
-} from 'src/app/types/route.type';
-import { DraggableContainerNames } from 'src/app/types/ui.type';
 
 @Component({
   selector: 'app-root',
@@ -77,21 +79,15 @@ import { DraggableContainerNames } from 'src/app/types/ui.type';
 })
 export class AppComponent implements OnInit, AfterViewInit {
   @ViewChild('changelogModal', { static: false })
-  changelogModal: ChangelogModalComponent;
+  public changelogModal: ChangelogModalComponent;
   @ViewChild('settingsModal', { static: false })
-  settingsModal: SettingsModalComponent;
+  public settingsModal: SettingsModalComponent;
   public activeEnvironment$: Observable<Environment>;
   public activeEnvironmentForm: FormGroup;
   public activeEnvironmentState$: Observable<EnvironmentStatus>;
-  public activeEnvironmentHeaders$: Observable<Header[]>;
-  public activeEnvironmentProxyReqHeader$: Observable<Header[]>;
-  public activeEnvironmentProxyResHeader$: Observable<Header[]>;
-  public activeEnvironmentUUID$: Observable<string>;
   public activeRoute$: Observable<Route>;
   public activeRouteForm: FormGroup;
   public activeRouteResponse$: Observable<RouteResponse>;
-  public activeRouteResponseUUID$: Observable<string>;
-  public activeRouteResponseHeaders$: Observable<Header[]>;
   public activeRouteResponseForm: FormGroup;
   public activeRouteResponseIndex$: Observable<number>;
   public activeRouteResponseLastLog$: Observable<EnvironmentLog>;
@@ -106,7 +102,6 @@ export class AppComponent implements OnInit, AfterViewInit {
   public environments$: Observable<Environments>;
   public environmentsLogs$: Observable<EnvironmentLogs>;
   public environmentsStatus$: Observable<EnvironmentsStatuses>;
-  public hasEnvironmentHeaders = this.environmentsService.hasEnvironmentHeaders;
   public Infinity = Infinity;
   public isValidURL = IsValidURL;
   public methods = methods;
@@ -136,13 +131,38 @@ export class AppComponent implements OnInit, AfterViewInit {
     private storageService: StorageService
   ) {}
 
+  // Listen to widow beforeunload event, and verify that no data saving is in progress
+  @HostListener('window:beforeunload', ['$event'])
+  public onBeforeUnload(event: BeforeUnloadEvent) {
+    if (this.storageService.isSaving()) {
+      if (!this.closingSubscription) {
+        this.logger.info('App closing. Waiting for save to finish.');
+
+        this.store.update(updateUIStateAction({ appClosing: true }));
+
+        this.closingSubscription = this.storageService
+          .saving()
+          .pipe(
+            filter((saving) => !saving),
+            tap(() => {
+              ipcRenderer.send('renderer-app-quit');
+              window.onbeforeunload = null;
+            })
+          )
+          .subscribe();
+      }
+
+      event.returnValue = '';
+    }
+  }
+
   ngOnInit() {
     this.injectedHeaders$ = this.injectHeaders$.asObservable();
 
     // tooltip config
     this.config.container = 'body';
 
-    this.logger.info(`Initializing application`);
+    this.logger.info('Initializing application');
 
     this.dragulaService.dropModel().subscribe((dragResult) => {
       this.environmentsService.moveMenuItem(
@@ -166,26 +186,10 @@ export class AppComponent implements OnInit, AfterViewInit {
     this.activeEnvironment$ = this.store.selectActiveEnvironment();
     this.activeRoute$ = this.store.selectActiveRoute();
     this.activeRouteResponse$ = this.store.selectActiveRouteResponse();
-    this.activeRouteResponseUUID$ = this.store.selectActiveRouteResponseProperty(
-      'uuid'
-    );
-    this.activeRouteResponseHeaders$ = this.store.selectActiveRouteResponseProperty(
-      'headers'
-    );
     this.activeRouteResponseIndex$ = this.store.selectActiveRouteResponseIndex();
     this.activeTab$ = this.store.select('activeTab');
     this.activeView$ = this.store.select('activeView');
     this.activeEnvironmentState$ = this.store.selectActiveEnvironmentStatus();
-    this.activeEnvironmentHeaders$ = this.store.selectActiveEnvironmentProperty(
-      'headers'
-    );
-    this.activeEnvironmentProxyReqHeader$ = this.store.selectActiveEnvironmentProperty(
-      'proxyReqHeaders'
-    );
-    this.activeEnvironmentProxyResHeader$ = this.store.selectActiveEnvironmentProperty(
-      'proxyResHeaders'
-    );
-    this.activeEnvironmentUUID$ = this.store.select('activeEnvironmentUUID');
     this.environmentsStatus$ = this.store.select('environmentsStatus');
     this.bodyEditorConfig$ = this.store.select('bodyEditorConfig');
     this.duplicatedEnvironments$ = this.store.select('duplicatedEnvironments');
@@ -199,171 +203,6 @@ export class AppComponent implements OnInit, AfterViewInit {
 
   ngAfterViewInit() {
     this.ipcService.init(this.changelogModal, this.settingsModal);
-  }
-
-  // Listen to widow beforeunload event, and verify that no data saving is in progress
-  @HostListener('window:beforeunload', ['$event'])
-  onBeforeUnload(event: BeforeUnloadEvent) {
-    if (this.storageService.isSaving()) {
-      if (!this.closingSubscription) {
-        this.logger.info('App closing. Waiting for save to finish.');
-
-        this.store.update(updateUIStateAction({ appClosing: true }));
-
-        this.closingSubscription = this.storageService
-          .saving()
-          .pipe(
-            filter((saving) => !saving),
-            tap(() => {
-              ipcRenderer.send('renderer-app-quit');
-              window.onbeforeunload = null;
-            })
-          )
-          .subscribe();
-      }
-
-      event.returnValue = '';
-    }
-  }
-
-  /**
-   * Init active environment and route forms, and subscribe to changes
-   */
-  private initForms() {
-    this.activeEnvironmentForm = this.formBuilder.group({
-      name: [''],
-      port: [''],
-      endpointPrefix: [''],
-      latency: [''],
-      proxyMode: [''],
-      proxyHost: [''],
-      https: [''],
-      cors: ['']
-    });
-
-    this.activeRouteForm = this.formBuilder.group({
-      documentation: [''],
-      method: [''],
-      endpoint: ['']
-    });
-
-    this.activeRouteResponseForm = this.formBuilder.group({
-      statusCode: [null],
-      label: [''],
-      latency: [''],
-      filePath: [''],
-      sendFileAsBody: [''],
-      body: [''],
-      rules: this.formBuilder.array([]),
-      disableTemplating: [false]
-    });
-
-    // send new activeEnvironmentForm values to the store, one by one
-    merge(
-      ...Object.keys(this.activeEnvironmentForm.controls).map((controlName) => {
-        return this.activeEnvironmentForm
-          .get(controlName)
-          .valueChanges.pipe(map((newValue) => ({ [controlName]: newValue })));
-      })
-    ).subscribe((newProperty) => {
-      this.environmentsService.updateActiveEnvironment(newProperty);
-    });
-
-    // send new activeRouteForm values to the store, one by one
-    merge(
-      ...Object.keys(this.activeRouteForm.controls).map((controlName) => {
-        return this.activeRouteForm
-          .get(controlName)
-          .valueChanges.pipe(map((newValue) => ({ [controlName]: newValue })));
-      })
-    ).subscribe((newProperty) => {
-      this.environmentsService.updateActiveRoute(newProperty);
-    });
-
-    // send new activeRouteResponseForm values to the store, one by one
-    merge(
-      ...Object.keys(this.activeRouteResponseForm.controls).map(
-        (controlName) => {
-          return this.activeRouteResponseForm
-            .get(controlName)
-            .valueChanges.pipe(
-              map((newValue) => ({ [controlName]: newValue }))
-            );
-        }
-      )
-    ).subscribe((newProperty) => {
-      this.environmentsService.updateActiveRouteResponse(newProperty);
-    });
-  }
-
-  /**
-   * Listen to stores to init form values
-   */
-  private initFormValues() {
-    // subscribe to active environment changes to reset the form
-    this.activeEnvironment$
-      .pipe(
-        filter((environment) => !!environment),
-        distinctUntilKeyChanged('uuid')
-      )
-      .subscribe((activeEnvironment) => {
-        this.activeEnvironmentForm.setValue(
-          {
-            name: activeEnvironment.name,
-            port: activeEnvironment.port,
-            endpointPrefix: activeEnvironment.endpointPrefix,
-            latency: activeEnvironment.latency,
-            proxyMode: activeEnvironment.proxyMode,
-            proxyHost: activeEnvironment.proxyHost,
-            https: activeEnvironment.https,
-            cors: activeEnvironment.cors
-          },
-          { emitEvent: false }
-        );
-      });
-
-    // subscribe to active route changes to reset the form
-    this.activeRoute$
-      .pipe(
-        filter((route) => !!route),
-        distinctUntilKeyChanged('uuid')
-      )
-      .subscribe((activeRoute) => {
-        this.activeRouteForm.patchValue(
-          {
-            documentation: activeRoute.documentation,
-            method: activeRoute.method,
-            endpoint: activeRoute.endpoint
-          },
-          { emitEvent: false }
-        );
-      });
-
-    // subscribe to active route response changes to reset the form
-    this.activeRouteResponse$
-      .pipe(
-        filter((routeResponse) => !!routeResponse),
-        // monitor changes in uuid and body (for body formatter method)
-        distinctUntilChanged(
-          (previous, next) =>
-            previous.uuid === next.uuid && previous.body === next.body
-        )
-      )
-      .subscribe((activeRouteResponse) => {
-        this.activeRouteResponseForm.patchValue(
-          {
-            statusCode: activeRouteResponse.statusCode,
-            label: activeRouteResponse.label,
-            latency: activeRouteResponse.latency,
-            filePath: activeRouteResponse.filePath,
-            sendFileAsBody: activeRouteResponse.sendFileAsBody,
-            body: activeRouteResponse.body,
-            rules: activeRouteResponse.rules,
-            disableTemplating: activeRouteResponse.disableTemplating
-          },
-          { emitEvent: false }
-        );
-      });
   }
 
   /**
@@ -419,22 +258,6 @@ export class AppComponent implements OnInit, AfterViewInit {
    */
   public addRouteResponse() {
     this.environmentsService.addRouteResponse();
-  }
-
-  /**
-   * Set the active environment
-   */
-  private selectEnvironment(
-    environmentUUIDOrDirection: string | ReducerDirectionType
-  ) {
-    this.environmentsService.setActiveEnvironment(environmentUUIDOrDirection);
-  }
-
-  /**
-   * Enable/disable a route
-   */
-  private toggleRoute(routeUUID?: string) {
-    this.environmentsService.toggleRoute(routeUUID);
   }
 
   /**
@@ -554,7 +377,7 @@ export class AppComponent implements OnInit, AfterViewInit {
 
     return {
       mimeType,
-      supportsTemplating: mimeTypesWithTemplating.indexOf(mimeType) > -1
+      supportsTemplating: MimeTypesWithTemplating.indexOf(mimeType) > -1
     };
   }
 
@@ -663,5 +486,168 @@ export class AppComponent implements OnInit, AfterViewInit {
    */
   public duplicateRouteResponse() {
     this.environmentsService.duplicateRouteResponse();
+  }
+
+  /**
+   * Enable/disable random response
+   */
+  public toggleRandomResponse(randomResponse: boolean) {
+    this.store.update(
+      updateRouteAction({
+        randomResponse: !randomResponse
+      })
+    );
+  }
+
+  /**
+   * Init active environment and route forms, and subscribe to changes
+   */
+  private initForms() {
+    this.activeEnvironmentForm = this.formBuilder.group({
+      name: [''],
+      port: [''],
+      endpointPrefix: [''],
+      latency: [''],
+      proxyMode: [''],
+      proxyHost: [''],
+      https: [''],
+      cors: ['']
+    });
+
+    this.activeRouteForm = this.formBuilder.group({
+      documentation: [''],
+      method: [''],
+      endpoint: ['']
+    });
+
+    this.activeRouteResponseForm = this.formBuilder.group({
+      statusCode: [null],
+      label: [''],
+      latency: [''],
+      filePath: [''],
+      sendFileAsBody: [''],
+      body: [''],
+      rules: this.formBuilder.array([]),
+      disableTemplating: [false]
+    });
+
+    // send new activeEnvironmentForm values to the store, one by one
+    merge(
+      ...Object.keys(this.activeEnvironmentForm.controls).map((controlName) =>
+        this.activeEnvironmentForm
+          .get(controlName)
+          .valueChanges.pipe(map((newValue) => ({ [controlName]: newValue })))
+      )
+    ).subscribe((newProperty) => {
+      this.environmentsService.updateActiveEnvironment(newProperty);
+    });
+
+    // send new activeRouteForm values to the store, one by one
+    merge(
+      ...Object.keys(this.activeRouteForm.controls).map((controlName) =>
+        this.activeRouteForm
+          .get(controlName)
+          .valueChanges.pipe(map((newValue) => ({ [controlName]: newValue })))
+      )
+    ).subscribe((newProperty) => {
+      this.environmentsService.updateActiveRoute(newProperty);
+    });
+
+    // send new activeRouteResponseForm values to the store, one by one
+    merge(
+      ...Object.keys(this.activeRouteResponseForm.controls).map((controlName) =>
+        this.activeRouteResponseForm
+          .get(controlName)
+          .valueChanges.pipe(map((newValue) => ({ [controlName]: newValue })))
+      )
+    ).subscribe((newProperty) => {
+      this.environmentsService.updateActiveRouteResponse(newProperty);
+    });
+  }
+
+  /**
+   * Listen to stores to init form values
+   */
+  private initFormValues() {
+    // subscribe to active environment changes to reset the form
+    this.activeEnvironment$
+      .pipe(
+        filter((environment) => !!environment),
+        distinctUntilKeyChanged('uuid')
+      )
+      .subscribe((activeEnvironment) => {
+        this.activeEnvironmentForm.setValue(
+          {
+            name: activeEnvironment.name,
+            port: activeEnvironment.port,
+            endpointPrefix: activeEnvironment.endpointPrefix,
+            latency: activeEnvironment.latency,
+            proxyMode: activeEnvironment.proxyMode,
+            proxyHost: activeEnvironment.proxyHost,
+            https: activeEnvironment.https,
+            cors: activeEnvironment.cors
+          },
+          { emitEvent: false }
+        );
+      });
+
+    // subscribe to active route changes to reset the form
+    this.activeRoute$
+      .pipe(
+        filter((route) => !!route),
+        distinctUntilKeyChanged('uuid')
+      )
+      .subscribe((activeRoute) => {
+        this.activeRouteForm.patchValue(
+          {
+            documentation: activeRoute.documentation,
+            method: activeRoute.method,
+            endpoint: activeRoute.endpoint
+          },
+          { emitEvent: false }
+        );
+      });
+
+    // subscribe to active route response changes to reset the form
+    this.activeRouteResponse$
+      .pipe(
+        filter((routeResponse) => !!routeResponse),
+        // monitor changes in uuid and body (for body formatter method)
+        distinctUntilChanged(
+          (previous, next) =>
+            previous.uuid === next.uuid && previous.body === next.body
+        )
+      )
+      .subscribe((activeRouteResponse) => {
+        this.activeRouteResponseForm.patchValue(
+          {
+            statusCode: activeRouteResponse.statusCode,
+            label: activeRouteResponse.label,
+            latency: activeRouteResponse.latency,
+            filePath: activeRouteResponse.filePath,
+            sendFileAsBody: activeRouteResponse.sendFileAsBody,
+            body: activeRouteResponse.body,
+            rules: activeRouteResponse.rules,
+            disableTemplating: activeRouteResponse.disableTemplating
+          },
+          { emitEvent: false }
+        );
+      });
+  }
+
+  /**
+   * Set the active environment
+   */
+  private selectEnvironment(
+    environmentUUIDOrDirection: string | ReducerDirectionType
+  ) {
+    this.environmentsService.setActiveEnvironment(environmentUUIDOrDirection);
+  }
+
+  /**
+   * Enable/disable a route
+   */
+  private toggleRoute(routeUUID?: string) {
+    this.environmentsService.toggleRoute(routeUUID);
   }
 }

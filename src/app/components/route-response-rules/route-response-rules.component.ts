@@ -9,6 +9,13 @@ import {
   Output
 } from '@angular/core';
 import { FormArray, FormBuilder, FormGroup } from '@angular/forms';
+import {
+  LogicalOperators,
+  ResponseRule,
+  ResponseRuleTargets,
+  Route,
+  RouteResponse
+} from '@mockoon/commons';
 import { Observable, Subject } from 'rxjs';
 import {
   debounceTime,
@@ -19,12 +26,6 @@ import {
 } from 'rxjs/operators';
 import { SelectOptionsList } from 'src/app/models/common.model';
 import { EnvironmentsService } from 'src/app/services/environments.service';
-import {
-  LogicalOperators,
-  ResponseRule,
-  ResponseRuleTargets,
-  RouteResponse
-} from 'src/app/types/route.type';
 
 @Component({
   selector: 'app-route-response-rules',
@@ -33,8 +34,12 @@ import {
   changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class RouteResponseRulesComponent implements OnInit, OnDestroy {
-  @Input() activeRouteResponse$: Observable<RouteResponse>;
-  @Output() ruleAdded: EventEmitter<any> = new EventEmitter();
+  @Input()
+  public activeRouteResponse$: Observable<RouteResponse>;
+  @Input()
+  public activeRoute$: Observable<Route>;
+  @Output()
+  public ruleAdded: EventEmitter<any> = new EventEmitter();
   public routeResponse$: Observable<RouteResponse>;
   public form: FormGroup;
   public responseRuleTargets: SelectOptionsList<ResponseRuleTargets> = [
@@ -89,26 +94,6 @@ export class RouteResponseRulesComponent implements OnInit, OnDestroy {
   }
 
   /**
-   * Replace all rules in the FormArray
-   */
-  private replaceRules(newRules: ResponseRule[], listenToChanges = true) {
-    this.listenToChanges = listenToChanges;
-    const formRulesArray = this.form.get('rules') as FormArray;
-
-    formRulesArray.clear();
-
-    newRules.forEach((rule) => {
-      formRulesArray.push(
-        this.formBuilder.group(<ResponseRule>{
-          ...rule
-        })
-      );
-    });
-
-    this.listenToChanges = true;
-  }
-
-  /**
    * Add a new rule to the list if possible
    */
   public addRule() {
@@ -129,5 +114,25 @@ export class RouteResponseRulesComponent implements OnInit, OnDestroy {
    */
   public removeRule(ruleIndex: number) {
     (this.form.get('rules') as FormArray).removeAt(ruleIndex);
+  }
+
+  /**
+   * Replace all rules in the FormArray
+   */
+  private replaceRules(newRules: ResponseRule[], listenToChanges = true) {
+    this.listenToChanges = listenToChanges;
+    const formRulesArray = this.form.get('rules') as FormArray;
+
+    formRulesArray.clear();
+
+    newRules.forEach((rule) => {
+      formRulesArray.push(
+        this.formBuilder.group(<ResponseRule>{
+          ...rule
+        })
+      );
+    });
+
+    this.listenToChanges = true;
   }
 }

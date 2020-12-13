@@ -1,10 +1,12 @@
-import { Config } from 'src/app/config';
-import { HighestMigrationId } from 'src/app/libs/migrations.lib';
 import {
-  ArrayContainsObjectKey,
-  GetEditorModeFromContentType,
-  GetRouteResponseContentType
-} from 'src/app/libs/utils.lib';
+  Environment,
+  Environments,
+  HighestMigrationId,
+  Route,
+  RouteResponse
+} from '@mockoon/commons';
+import { Config } from 'src/app/config';
+import { ArrayContainsObjectKey } from 'src/app/libs/utils.lib';
 import {
   ActiveEnvironmentsLogUUIDs,
   EnvironmentLogs
@@ -12,12 +14,11 @@ import {
 import { Toast } from 'src/app/models/toasts.model';
 import { Actions, ActionTypes } from 'src/app/stores/actions';
 import {
-  DuplicatedRoutesTypes,
-  EnvironmentsStatuses,
-  StoreType
-} from 'src/app/stores/store';
-import { Environment, Environments } from 'src/app/types/environment.type';
-import { Route, RouteResponse } from 'src/app/types/route.type';
+  getBodyEditorMode,
+  updateDuplicatedEnvironments,
+  updateDuplicatedRoutes
+} from 'src/app/stores/reducer-utils';
+import { EnvironmentsStatuses, StoreType } from 'src/app/stores/store';
 
 export type ReducerDirectionType = 'next' | 'previous';
 export type ReducerIndexes = { sourceIndex: number; targetIndex: number };
@@ -75,10 +76,10 @@ export function environmentReducer(
       }, {});
 
       // find first non disabled environment
-      const activeEnvironment = newEnvironments.find((environment) => {
-        return !newEnvironmentsStatus[environment.uuid]
-          .disabledForIncompatibility;
-      });
+      const activeEnvironment = newEnvironments.find(
+        (environment) =>
+          !newEnvironmentsStatus[environment.uuid].disabledForIncompatibility
+      );
 
       newState = {
         ...state,
@@ -457,10 +458,7 @@ export function environmentReducer(
         'proxyMode',
         'proxyHost',
         'https',
-        'cors',
-        'headers',
-        'proxyReqHeaders',
-        'proxyResHeaders'
+        'cors'
       ];
       const activeEnvironmentStatus =
         state.environmentsStatus[state.activeEnvironmentUUID];
@@ -752,11 +750,8 @@ export function environmentReducer(
                   const responses = [...route.responses];
                   if (action.isDuplication) {
                     const activeRouteResponseIndex = route.responses.findIndex(
-                      (routeResponse: RouteResponse) => {
-                        return (
-                          routeResponse.uuid === state.activeRouteResponseUUID
-                        );
-                      }
+                      (routeResponse: RouteResponse) =>
+                        routeResponse.uuid === state.activeRouteResponseUUID
                     );
                     responses.splice(
                       activeRouteResponseIndex + 1,
@@ -876,9 +871,9 @@ export function environmentReducer(
     case ActionTypes.REMOVE_TOAST: {
       newState = {
         ...state,
-        toasts: state.toasts.filter((toast: Toast) => {
-          return toast.UUID !== action.toastUUID;
-        })
+        toasts: state.toasts.filter(
+          (toast: Toast) => toast.UUID !== action.toastUUID
+        )
       };
       break;
     }
@@ -941,91 +936,4 @@ export function environmentReducer(
   };
 
   return newState;
-}
-
-/**
- * Return the body editor "mode" from the currently selected env / route response
- *
- * @param state
- */
-function getBodyEditorMode(state: StoreType) {
-  const currentEnvironment = state.environments.find(
-    (environment) => environment.uuid === state.activeEnvironmentUUID
-  );
-  const currentRoute =
-    currentEnvironment &&
-    currentEnvironment.routes.find(
-      (route) => route.uuid === state.activeRouteUUID
-    );
-  const currentRouteResponse =
-    currentEnvironment &&
-    currentRoute &&
-    currentRoute.responses.find(
-      (response) => response.uuid === state.activeRouteResponseUUID
-    );
-
-  if (!currentEnvironment || !currentRoute || !currentRouteResponse) {
-    return 'text';
-  }
-
-  const routeResponseContentType = GetRouteResponseContentType(
-    currentEnvironment,
-    currentRouteResponse
-  );
-
-  return GetEditorModeFromContentType(routeResponseContentType);
-}
-
-/**
- * List duplicated environments (sharing same port)
- *
- * @param state
- */
-function updateDuplicatedEnvironments(state: StoreType): Set<string> {
-  const duplicatedEnvironmentsUUIDs = new Set<string>();
-
-  state.environments.forEach((environment, environmentIndex) => {
-    // extract all environments with same port than current one
-    state.environments.forEach(
-      (otherEnvironment: Environment, otherEnvironmentIndex: number) => {
-        if (
-          otherEnvironmentIndex > environmentIndex &&
-          otherEnvironment.port === environment.port
-        ) {
-          duplicatedEnvironmentsUUIDs.add(otherEnvironment.uuid);
-        }
-      }
-    );
-  });
-
-  return duplicatedEnvironmentsUUIDs;
-}
-
-/**
- * List duplicated routes per environment (sharing same endpoint and method)
- *
- * @param state
- */
-function updateDuplicatedRoutes(state: StoreType): DuplicatedRoutesTypes {
-  const duplicatedRoutes: DuplicatedRoutesTypes = {};
-
-  state.environments.forEach((environment) => {
-    duplicatedRoutes[environment.uuid] = new Set();
-
-    environment.routes.forEach((route: Route, routeIndex: number) => {
-      environment.routes.forEach(
-        (otherRoute: Route, otherRouteIndex: number) => {
-          if (
-            otherRouteIndex > routeIndex &&
-            otherRoute.endpoint === route.endpoint &&
-            otherRoute.method === route.method
-          ) {
-            duplicatedRoutes[environment.uuid].add(otherRoute.uuid);
-          }
-        }
-      );
-    });
-  });
-
-  return duplicatedRoutes;
 }

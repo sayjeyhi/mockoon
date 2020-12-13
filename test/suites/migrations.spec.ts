@@ -1,6 +1,6 @@
+import { HighestMigrationId } from '@mockoon/commons';
 import { expect } from 'chai';
 import { promises as fs } from 'fs';
-import { HighestMigrationId } from 'src/app/libs/migrations.lib';
 import { Settings } from 'src/app/models/settings.model';
 import { Tests } from 'test/lib/tests';
 
@@ -93,6 +93,21 @@ describe('Environments migrations', () => {
         './tmp/storage/environments.json',
         '0.routes.0.responses.0.rulesOperator',
         'OR'
+      );
+    });
+  });
+
+  describe('No. 13', () => {
+    const filesPath = 'migrations/13';
+    const tests = new Tests(filesPath);
+
+    it('Should add "randomResponse" to the route', async () => {
+      await tests.helpers.waitForAutosave();
+
+      await tests.helpers.verifyObjectPropertyInFile(
+        './tmp/storage/environments.json',
+        '0.routes.0.randomResponse',
+        false
       );
     });
   });
